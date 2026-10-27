@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+entra-manifest.json
+entra-run-manifest.json
