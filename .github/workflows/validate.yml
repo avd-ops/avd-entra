@@ -15,5 +15,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate JSON templates, schemas and leak rules
         run: python3 scripts/validate.py
+      - name: Run offline unit tests
+        run: python3 -m unittest discover -s tests -p "test_*.py" -v
+      - name: Run PSScriptAnalyzer and Pester
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
+            Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+          }
+          Invoke-ScriptAnalyzer -Path scripts -Recurse -EnableExit
+          $res = Invoke-Pester -Path tests/Deploy-AvdEntra.Tests.ps1 -PassThru
+          if ($res.FailedCount -gt 0) { exit 1 }
       - name: ShellCheck
         run: shellcheck scripts/*.sh
