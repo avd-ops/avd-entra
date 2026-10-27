@@ -1,0 +1,33 @@
+{
+  "displayName": "[avd-ops] Require Phishing-Resistant MFA for Azure Virtual Desktop",
+  "state": "enabledForReportingButNotEnforced",
+  "conditions": {
+    "applications": {
+      "includeApplications": [
+        "9cdead84-a844-4324-93f2-b2e6bb768d07",
+        "270efc09-cd0d-444b-a71f-39af4910ec45"
+      ]
+    },
+    "users": {
+      "includeGroups": [
+        "{{avdUsersGroupId}}"
+      ],
+      "excludeGroups": [
+        "{{breakGlassExcludeGroupId}}"
+      ]
+    }
+  },
+  "grantControls": {
+    "operator": "OR",
+    "builtInControls": [
+      "mfa"
+    ]
+  },
+  "sessionControls": {
+    "signInFrequency": {
+      "value": 8,
+      "type": "hours",
+      "isEnabled": true
+    }
+  }
+}
