@@ -117,4 +117,22 @@ Describe 'avd-entra Control Plane (Phase 4 Offline Suite)' {
         $teardown.Deleted.Count | Should -Be 0
         $teardown.Skipped.Count | Should -BeGreaterOrEqual 5
     }
+
+    It 'Creates optional Windows 365 user and dynamic Cloud PC device groups with -IncludeWin365' {
+        $result = & $script:DeployScript `
+            -Prefix 'avd' `
+            -Environment 'dev' `
+            -IncludeWin365 `
+            -OutputPath $script:ManifestFile `
+            -RunManifestPath $script:RunManifestFile `
+            -DryRun
+
+        $result.groups.win365UsersGroupId | Should -Not -BeNullOrEmpty
+        $result.groups.cloudPcDynamicGroupId | Should -Not -BeNullOrEmpty
+
+        $run = Get-Content -LiteralPath $script:RunManifestFile -Raw | ConvertFrom-Json -Depth 10
+        $roles = @($run.objects | ForEach-Object { $_.role })
+        $roles | Should -Contain 'win365UsersGroupId'
+        $roles | Should -Contain 'cloudPcDynamicGroupId'
+    }
 }
