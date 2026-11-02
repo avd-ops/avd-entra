@@ -12,6 +12,7 @@ param(
     [Parameter()][string[]]$PoolNames = @('pool1'),
     [Parameter()][string]$StorageAccountFqdn = '',
     [Parameter()][switch]$InitializeGraphApp,
+    [Parameter()][switch]$IncludeWin365,
     [Parameter()][switch]$SeedLabUsers,
     [Parameter()][string]$OutputPath = './entra-manifest.json',
     [Parameter()][string]$RunManifestPath = './entra-run-manifest.json',
@@ -261,6 +262,23 @@ $dynamicHostsGroup = Set-EntraGroupObject `
     -DynamicDeviceGroup `
     -MembershipRule $dynamicRule
 
+$win365UsersGroup = $null
+$cloudPcDynamicGroup = $null
+if ($IncludeWin365) {
+    $win365UsersGroup = Set-EntraGroupObject `
+        -DisplayName "$stamp Windows 365 Users" `
+        -Description "Windows 365 Cloud PC users for $Prefix ($Environment)" `
+        -RoleKey 'win365UsersGroupId'
+
+    $cloudPcRule = '(device.model -startsWith "Cloud PC")'
+    $cloudPcDynamicGroup = Set-EntraGroupObject `
+        -DisplayName "$stamp Windows 365 Cloud PCs" `
+        -Description "Dynamic device group for Windows 365 Enterprise and Frontline Cloud PCs ($Environment)" `
+        -RoleKey 'cloudPcDynamicGroupId' `
+        -DynamicDeviceGroup `
+        -MembershipRule $cloudPcRule
+}
+
 # ---- 4. Optional Entra Kerberos Storage App Readiness ----
 $entraKerberosReady = $false
 $storageKerberosAppId = $null
@@ -360,12 +378,16 @@ if (Test-Path -LiteralPath $policyDir) {
             'enabledForReportingButNotEnforced'
         }
 
+        $includeGroupIds = @($policyDef.conditions.users.includeGroups)
+        if ($win365UsersGroup -and $includeGroupIds -notcontains [string]$win365UsersGroup.id) {
+            $includeGroupIds += [string]$win365UsersGroup.id
+        }
         $conditionsBody = @{
             applications = @{
                 includeApplications = @($policyDef.conditions.applications.includeApplications)
             }
             users        = @{
-                includeGroups = @($policyDef.conditions.users.includeGroups)
+                includeGroups = @($includeGroupIds)
                 excludeGroups = @($policyDef.conditions.users.excludeGroups)
             }
         }
@@ -513,16 +535,21 @@ if ($SeedLabUsers) {
 }
 
 # ---- 7. Emit entra-manifest.json and entra-run-manifest.json ----
+$groupsManifest = [ordered]@{
+    avdUsersGroupId            = [string]$usersGroup.id
+    avdAdminsGroupId           = [string]$adminsGroup.id
+    sessionHostsDynamicGroupId = [string]$dynamicHostsGroup.id
+    breakGlassExcludeGroupId   = [string]$breakGlassGroup.id
+}
+if ($win365UsersGroup -and $cloudPcDynamicGroup) {
+    $groupsManifest['win365UsersGroupId'] = [string]$win365UsersGroup.id
+    $groupsManifest['cloudPcDynamicGroupId'] = [string]$cloudPcDynamicGroup.id
+}
 $manifest = [ordered]@{
     schema             = 'avd-ops-entra-manifest/v1'
     environment        = $Environment
     prefix             = $Prefix
-    groups             = [pscustomobject][ordered]@{
-        avdUsersGroupId            = [string]$usersGroup.id
-        avdAdminsGroupId           = [string]$adminsGroup.id
-        sessionHostsDynamicGroupId = [string]$dynamicHostsGroup.id
-        breakGlassExcludeGroupId   = [string]$breakGlassGroup.id
-    }
+    groups             = [pscustomobject]$groupsManifest
     conditionalAccess  = @($caManifestList)
     entraKerberosReady = [bool]$entraKerberosReady
 }

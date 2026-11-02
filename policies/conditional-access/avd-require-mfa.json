@@ -5,7 +5,8 @@
     "applications": {
       "includeApplications": [
         "9cdead84-a844-4324-93f2-b2e6bb768d07",
-        "270efc09-cd0d-444b-a71f-39af4910ec45"
+        "270efc09-cd0d-444b-a71f-39af4910ec45",
+        "0af06dc6-e4b5-4f28-818e-e78e62d137a5"
       ]
     },
     "users": {

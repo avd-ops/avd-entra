@@ -63,6 +63,11 @@ def validate_manifest_data(data: Any, label: str, errors: list[str]) -> None:
             gv = groups.get(gk)
             if not isinstance(gv, str) or not gv.strip():
                 errors.append(f"{label}: groups.{gk} must be a non-empty string")
+        for opt_gk in ("win365UsersGroupId", "cloudPcDynamicGroupId"):
+            if opt_gk in groups:
+                opt_gv = groups.get(opt_gk)
+                if not isinstance(opt_gv, str) or not opt_gv.strip():
+                    errors.append(f"{label}: groups.{opt_gk} must be a non-empty string")
 
     ca_list = data.get("conditionalAccess")
     if not isinstance(ca_list, list):
