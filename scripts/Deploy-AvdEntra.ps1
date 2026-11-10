@@ -7,6 +7,8 @@
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
+    [Parameter()][ValidateSet('commercial', 'usgov')][string]$Cloud = 'commercial',
+    [Parameter()][ValidateSet('standard', 'itar-cui')][string]$ComplianceProfile = $(if ($Cloud -eq 'usgov') { 'itar-cui' } else { 'standard' }),
     [Parameter()][ValidateLength(2, 16)][string]$Prefix = 'avd',
     [Parameter()][ValidateSet('dev', 'test', 'prod')][string]$Environment = 'dev',
     [Parameter()][string[]]$PoolNames = @('pool1'),
@@ -27,6 +29,10 @@ if (-not (Get-Module -Name 'AvdEntra')) {
 }
 
 $isDryRun = [bool]$DryRun -or ($env:AVD_OPS_DRY_RUN -eq '1')
+$cloudEnv = Set-AvdEntraCloudContext -Cloud $Cloud
+$null = Assert-AvdCloudMatch -Cloud $Cloud -DryRun:$isDryRun
+$graphEndpoint = ([string]$cloudEnv.graphEndpoint).TrimEnd('/')
+
 $stamp = "[avd-ops-$Prefix-$Environment]"
 $runObjects = [System.Collections.Generic.List[object]]::new()
 $graphAppId = '00000003-0000-0000-c000-000000000000'
@@ -51,8 +57,8 @@ function Set-EntraGroupObject {
         [string]$MembershipRule = ''
     )
     $escaped = $DisplayName.Replace("'", "''")
-    $filterUri = Get-EntraGraphFilterUri -Collection 'groups' -Filter "displayName eq '$escaped'" -Select 'id,displayName,description,securityEnabled,groupTypes,membershipRule,membershipRuleProcessingState'
-    $existingList = @(Invoke-EntraGraph -Method GET -Uri $filterUri -DryRun:$isDryRun)
+    $filterUri = Get-EntraGraphFilterUri -Collection 'groups' -Filter "displayName eq '$escaped'" -Select 'id,displayName,description,securityEnabled,groupTypes,membershipRule,membershipRuleProcessingState' -Cloud $Cloud
+    $existingList = @(Invoke-EntraGraph -Method GET -Uri $filterUri -Cloud $Cloud -DryRun:$isDryRun)
     if ($existingList.Count -gt 1) {
         throw "Multiple Entra groups match displayName '$DisplayName'. Resolve duplicates before running."
     }
@@ -71,9 +77,9 @@ function Set-EntraGroupObject {
             $patchBody['membershipRuleProcessingState'] = 'On'
         }
         if ($patchBody.Count -gt 0 -and $PSCmdlet.ShouldProcess($DisplayName, 'Update Entra group properties')) {
-            $null = Invoke-EntraGraph -Method PATCH -Uri "https://graph.microsoft.com/v1.0/groups/$($existing.id)" -Body $patchBody -DryRun:$isDryRun
+            $null = Invoke-EntraGraph -Method PATCH -Uri "$graphEndpoint/v1.0/groups/$($existing.id)" -Body $patchBody -Cloud $Cloud -DryRun:$isDryRun
         }
-        $members = @(Invoke-EntraGraph -Method GET -Uri "https://graph.microsoft.com/v1.0/groups/$($existing.id)/members?`$select=id&`$top=1" -DryRun:$isDryRun)
+        $members = @(Invoke-EntraGraph -Method GET -Uri "$graphEndpoint/v1.0/groups/$($existing.id)/members?`$select=id&`$top=1" -Cloud $Cloud -DryRun:$isDryRun)
         $runObjects.Add([ordered]@{
             type        = 'group'
             role        = $RoleKey
@@ -99,7 +105,7 @@ function Set-EntraGroupObject {
     }
 
     if ($PSCmdlet.ShouldProcess($DisplayName, 'Create Entra group')) {
-        $created = Invoke-EntraGraph -Method POST -Uri 'https://graph.microsoft.com/v1.0/groups' -Body $createBody -DryRun:$isDryRun
+        $created = Invoke-EntraGraph -Method POST -Uri "$graphEndpoint/v1.0/groups" -Body $createBody -Cloud $Cloud -DryRun:$isDryRun
         $runObjects.Add([ordered]@{
             type        = 'group'
             role        = $RoleKey
@@ -116,7 +122,7 @@ function Set-EntraGroupObject {
 }
 
 # ---- 1. Preflight SKU check (subscribedSkus) ----
-$subscribedSkus = @(Invoke-EntraGraph -Method GET -Uri 'https://graph.microsoft.com/v1.0/subscribedSkus' -DryRun:$isDryRun)
+$subscribedSkus = @(Invoke-EntraGraph -Method GET -Uri "$graphEndpoint/v1.0/subscribedSkus" -Cloud $Cloud -DryRun:$isDryRun)
 $allPlans = @(foreach ($sku in $subscribedSkus) {
     if ($null -ne $sku -and $sku.PSObject.Properties['servicePlans'] -and $sku.servicePlans) {
         foreach ($sp in @($sku.servicePlans)) { $sp }
@@ -142,8 +148,8 @@ $availableSku = $subscribedSkus | Where-Object {
 # ---- 2. Optional Graph operator app registration (avd-opsbot) ----
 if ($InitializeGraphApp) {
     $appDisplayName = "$stamp avd-opsbot"
-    $graphSpUri = Get-EntraGraphFilterUri -Collection 'servicePrincipals' -Filter "appId eq '$graphAppId'" -Select 'id,appId,oauth2PermissionScopes'
-    $graphSp = @(Invoke-EntraGraph -Method GET -Uri $graphSpUri -DryRun:$isDryRun) | Select-Object -First 1
+    $graphSpUri = Get-EntraGraphFilterUri -Collection 'servicePrincipals' -Filter "appId eq '$graphAppId'" -Select 'id,appId,oauth2PermissionScopes' -Cloud $Cloud
+    $graphSp = @(Invoke-EntraGraph -Method GET -Uri $graphSpUri -Cloud $Cloud -DryRun:$isDryRun) | Select-Object -First 1
     $grantScopes = @('openid', 'profile', 'offline_access') + $operatorScopes
     $scopeIds = [ordered]@{}
     if ($graphSp -and $graphSp.PSObject.Properties['oauth2PermissionScopes']) {
@@ -155,20 +161,20 @@ if ($InitializeGraphApp) {
     $wantAccess = @($scopeIds.Values | ForEach-Object { @{ id = $_; type = 'Scope' } })
 
     $escapedApp = $appDisplayName.Replace("'", "''")
-    $appFilterUri = Get-EntraGraphFilterUri -Collection 'applications' -Filter "displayName eq '$escapedApp'" -Select 'id,appId,displayName,isFallbackPublicClient,publicClient,requiredResourceAccess'
-    $existingApps = @(Invoke-EntraGraph -Method GET -Uri $appFilterUri -DryRun:$isDryRun)
+    $appFilterUri = Get-EntraGraphFilterUri -Collection 'applications' -Filter "displayName eq '$escapedApp'" -Select 'id,appId,displayName,isFallbackPublicClient,publicClient,requiredResourceAccess' -Cloud $Cloud
+    $existingApps = @(Invoke-EntraGraph -Method GET -Uri $appFilterUri -Cloud $Cloud -DryRun:$isDryRun)
     $appObj = $existingApps | Select-Object -First 1
 
     if (-not $appObj) {
         if ($PSCmdlet.ShouldProcess($appDisplayName, 'Create public client Graph operator application')) {
-            $appObj = Invoke-EntraGraph -Method POST -Uri 'https://graph.microsoft.com/v1.0/applications' -Body @{
+            $appObj = Invoke-EntraGraph -Method POST -Uri "$graphEndpoint/v1.0/applications" -Body @{
                 displayName            = $appDisplayName
                 description            = 'Delegated Microsoft Graph sign-in for avd-ops control-plane automation. Public client: no secret, no certificate.'
                 signInAudience         = 'AzureADMyOrg'
                 isFallbackPublicClient = $true
                 publicClient           = @{ redirectUris = @('http://localhost') }
                 requiredResourceAccess = @(@{ resourceAppId = $graphAppId; resourceAccess = $wantAccess })
-            } -DryRun:$isDryRun
+            } -Cloud $Cloud -DryRun:$isDryRun
             $runObjects.Add([ordered]@{
                 type        = 'application'
                 role        = 'graphOperatorApp'
@@ -191,37 +197,37 @@ if ($InitializeGraphApp) {
     }
 
     if ($appObj) {
-        $spFilterUri = Get-EntraGraphFilterUri -Collection 'servicePrincipals' -Filter "appId eq '$($appObj.appId)'" -Select 'id,appId,displayName,appRoleAssignmentRequired'
-        $spObj = @(Invoke-EntraGraph -Method GET -Uri $spFilterUri -DryRun:$isDryRun) | Select-Object -First 1
+        $spFilterUri = Get-EntraGraphFilterUri -Collection 'servicePrincipals' -Filter "appId eq '$($appObj.appId)'" -Select 'id,appId,displayName,appRoleAssignmentRequired' -Cloud $Cloud
+        $spObj = @(Invoke-EntraGraph -Method GET -Uri $spFilterUri -Cloud $Cloud -DryRun:$isDryRun) | Select-Object -First 1
         if (-not $spObj) {
             if ($PSCmdlet.ShouldProcess($appDisplayName, 'Create service principal with assignment required')) {
-                $spObj = Invoke-EntraGraph -Method POST -Uri 'https://graph.microsoft.com/v1.0/servicePrincipals' -Body @{
+                $spObj = Invoke-EntraGraph -Method POST -Uri "$graphEndpoint/v1.0/servicePrincipals" -Body @{
                     appId                     = $appObj.appId
                     displayName               = $appDisplayName
                     appRoleAssignmentRequired = $true
                     tags                      = @('WindowsAzureActiveDirectoryIntegratedApp')
-                } -DryRun:$isDryRun
+                } -Cloud $Cloud -DryRun:$isDryRun
             }
         }
         elseif (-not $spObj.appRoleAssignmentRequired) {
             if ($PSCmdlet.ShouldProcess($appDisplayName, 'Enable appRoleAssignmentRequired on service principal')) {
-                $null = Invoke-EntraGraph -Method PATCH -Uri "https://graph.microsoft.com/v1.0/servicePrincipals/$($spObj.id)" -Body @{
+                $null = Invoke-EntraGraph -Method PATCH -Uri "$graphEndpoint/v1.0/servicePrincipals/$($spObj.id)" -Body @{
                     appRoleAssignmentRequired = $true
-                } -DryRun:$isDryRun
+                } -Cloud $Cloud -DryRun:$isDryRun
             }
         }
 
         if ($spObj -and $graphSp) {
-            $grantFilterUri = Get-EntraGraphFilterUri -Collection 'oauth2PermissionGrants' -Filter "clientId eq '$($spObj.id)'"
-            $grants = @(Invoke-EntraGraph -Method GET -Uri $grantFilterUri -DryRun:$isDryRun)
+            $grantFilterUri = Get-EntraGraphFilterUri -Collection 'oauth2PermissionGrants' -Filter "clientId eq '$($spObj.id)'" -Cloud $Cloud
+            $grants = @(Invoke-EntraGraph -Method GET -Uri $grantFilterUri -Cloud $Cloud -DryRun:$isDryRun)
             $existingGrant = @($grants | Where-Object { $_.consentType -eq 'AllPrincipals' -and $_.resourceId -eq $graphSp.id }) | Select-Object -First 1
             if (-not $existingGrant -and $PSCmdlet.ShouldProcess($appDisplayName, 'Grant admin consent for delegated Microsoft Graph scopes')) {
-                $null = Invoke-EntraGraph -Method POST -Uri 'https://graph.microsoft.com/v1.0/oauth2PermissionGrants' -Body @{
+                $null = Invoke-EntraGraph -Method POST -Uri "$graphEndpoint/v1.0/oauth2PermissionGrants" -Body @{
                     clientId    = $spObj.id
                     consentType = 'AllPrincipals'
                     resourceId  = $graphSp.id
                     scope       = ($grantScopes -join ' ')
-                } -DryRun:$isDryRun
+                } -Cloud $Cloud -DryRun:$isDryRun
             }
         }
     }
@@ -285,12 +291,12 @@ $storageKerberosAppId = $null
 if (-not [string]::IsNullOrWhiteSpace($StorageAccountFqdn)) {
     $storageAppName = "[Storage Account] $($StorageAccountFqdn.Trim())"
     $escapedStorageName = $storageAppName.Replace("'", "''")
-    $storageAppUri = Get-EntraGraphFilterUri -Collection 'applications' -Filter "displayName eq '$escapedStorageName'" -Select 'id,appId,displayName,tags,requiredResourceAccess'
-    $storageApps = @(Invoke-EntraGraph -Method GET -Uri $storageAppUri -DryRun:$isDryRun)
+    $storageAppUri = Get-EntraGraphFilterUri -Collection 'applications' -Filter "displayName eq '$escapedStorageName'" -Select 'id,appId,displayName,tags,requiredResourceAccess' -Cloud $Cloud
+    $storageApps = @(Invoke-EntraGraph -Method GET -Uri $storageAppUri -Cloud $Cloud -DryRun:$isDryRun)
 
     $unownedApps = [System.Collections.Generic.List[object]]::new()
     foreach ($candidate in $storageApps) {
-        $owners = @(Invoke-EntraGraph -Method GET -Uri "https://graph.microsoft.com/v1.0/applications/$($candidate.id)/owners?`$select=id" -DryRun:$isDryRun)
+        $owners = @(Invoke-EntraGraph -Method GET -Uri "$graphEndpoint/v1.0/applications/$($candidate.id)/owners?`$select=id" -Cloud $Cloud -DryRun:$isDryRun)
         if ($owners.Count -eq 0) {
             $unownedApps.Add($candidate)
         }
@@ -299,16 +305,16 @@ if (-not [string]::IsNullOrWhiteSpace($StorageAccountFqdn)) {
     if ($unownedApps.Count -eq 1) {
         $storageApp = $unownedApps[0]
         $storageKerberosAppId = [string]$storageApp.appId
-        $storageSpUri = Get-EntraGraphFilterUri -Collection 'servicePrincipals' -Filter "appId eq '$storageKerberosAppId'" -Select 'id,appId,displayName'
-        $storageSp = @(Invoke-EntraGraph -Method GET -Uri $storageSpUri -DryRun:$isDryRun) | Select-Object -First 1
+        $storageSpUri = Get-EntraGraphFilterUri -Collection 'servicePrincipals' -Filter "appId eq '$storageKerberosAppId'" -Select 'id,appId,displayName' -Cloud $Cloud
+        $storageSp = @(Invoke-EntraGraph -Method GET -Uri $storageSpUri -Cloud $Cloud -DryRun:$isDryRun) | Select-Object -First 1
 
-        $graphSpUri = Get-EntraGraphFilterUri -Collection 'servicePrincipals' -Filter "appId eq '$graphAppId'" -Select 'id,appId,oauth2PermissionScopes'
-        $graphSp = @(Invoke-EntraGraph -Method GET -Uri $graphSpUri -DryRun:$isDryRun) | Select-Object -First 1
+        $graphSpUri = Get-EntraGraphFilterUri -Collection 'servicePrincipals' -Filter "appId eq '$graphAppId'" -Select 'id,appId,oauth2PermissionScopes' -Cloud $Cloud
+        $graphSp = @(Invoke-EntraGraph -Method GET -Uri $graphSpUri -Cloud $Cloud -DryRun:$isDryRun) | Select-Object -First 1
 
         if ($storageSp -and $graphSp) {
             $requiredScopes = @('openid', 'profile', 'User.Read')
-            $grantsUri = Get-EntraGraphFilterUri -Collection 'oauth2PermissionGrants' -Filter "clientId eq '$($storageSp.id)'"
-            $grants = @(Invoke-EntraGraph -Method GET -Uri $grantsUri -DryRun:$isDryRun)
+            $grantsUri = Get-EntraGraphFilterUri -Collection 'oauth2PermissionGrants' -Filter "clientId eq '$($storageSp.id)'" -Cloud $Cloud
+            $grants = @(Invoke-EntraGraph -Method GET -Uri $grantsUri -Cloud $Cloud -DryRun:$isDryRun)
             $grant = @($grants | Where-Object { $_.consentType -eq 'AllPrincipals' -and $_.resourceId -eq $graphSp.id }) | Select-Object -First 1
             $haveScopes = if ($grant -and $grant.PSObject.Properties['scope'] -and $grant.scope) {
                 @($grant.scope -split ' ' | Where-Object { $_ })
@@ -319,17 +325,17 @@ if (-not [string]::IsNullOrWhiteSpace($StorageAccountFqdn)) {
             $missingScopes = @($requiredScopes | Where-Object { $haveScopes -notcontains $_ })
             if ($missingScopes.Count -gt 0 -and $PSCmdlet.ShouldProcess($storageAppName, "Grant admin consent for $($requiredScopes -join ' ')")) {
                 if ($grant) {
-                    $null = Invoke-EntraGraph -Method PATCH -Uri "https://graph.microsoft.com/v1.0/oauth2PermissionGrants/$($grant.id)" -Body @{
+                    $null = Invoke-EntraGraph -Method PATCH -Uri "$graphEndpoint/v1.0/oauth2PermissionGrants/$($grant.id)" -Body @{
                         scope = ((@($haveScopes) + $missingScopes) -join ' ')
-                    } -DryRun:$isDryRun
+                    } -Cloud $Cloud -DryRun:$isDryRun
                 }
                 else {
-                    $null = Invoke-EntraGraph -Method POST -Uri 'https://graph.microsoft.com/v1.0/oauth2PermissionGrants' -Body @{
+                    $null = Invoke-EntraGraph -Method POST -Uri "$graphEndpoint/v1.0/oauth2PermissionGrants" -Body @{
                         clientId    = $storageSp.id
                         consentType = 'AllPrincipals'
                         resourceId  = $graphSp.id
                         scope       = ($requiredScopes -join ' ')
-                    } -DryRun:$isDryRun
+                    } -Cloud $Cloud -DryRun:$isDryRun
                 }
             }
         }
@@ -337,9 +343,9 @@ if (-not [string]::IsNullOrWhiteSpace($StorageAccountFqdn)) {
         $sidTag = 'kdc_enable_cloud_group_sids'
         $existingTags = if ($storageApp.PSObject.Properties['tags'] -and $storageApp.tags) { @($storageApp.tags) } else { @() }
         if ($existingTags -notcontains $sidTag -and $PSCmdlet.ShouldProcess($storageAppName, "Add tag $sidTag")) {
-            $null = Invoke-EntraGraph -Method PATCH -Uri "https://graph.microsoft.com/v1.0/applications/$($storageApp.id)" -Body @{
+            $null = Invoke-EntraGraph -Method PATCH -Uri "$graphEndpoint/v1.0/applications/$($storageApp.id)" -Body @{
                 tags = @($existingTags + $sidTag)
-            } -DryRun:$isDryRun
+            } -Cloud $Cloud -DryRun:$isDryRun
         }
         $entraKerberosReady = $true
     }
@@ -371,50 +377,25 @@ if (Test-Path -LiteralPath $policyDir) {
             "$stamp $baseTitle"
         }
 
-        $policyState = if ($policyDef.PSObject.Properties['state'] -and $policyDef.state) {
-            [string]$policyDef.state
-        }
-        else {
-            'enabledForReportingButNotEnforced'
-        }
-
         $includeGroupIds = @($policyDef.conditions.users.includeGroups)
         if ($win365UsersGroup -and $includeGroupIds -notcontains [string]$win365UsersGroup.id) {
             $includeGroupIds += [string]$win365UsersGroup.id
         }
-        $conditionsBody = @{
-            applications = @{
-                includeApplications = @($policyDef.conditions.applications.includeApplications)
-            }
-            users        = @{
-                includeGroups = @($includeGroupIds)
-                excludeGroups = @($policyDef.conditions.users.excludeGroups)
-            }
-        }
-        if ($storageKerberosAppId) {
-            $existingExcludes = if ($policyDef.conditions.applications.PSObject.Properties['excludeApplications'] -and $policyDef.conditions.applications.excludeApplications) {
-                @($policyDef.conditions.applications.excludeApplications)
-            }
-            else {
-                @()
-            }
-            if ($existingExcludes -notcontains $storageKerberosAppId) {
-                $existingExcludes += $storageKerberosAppId
-            }
-            $conditionsBody.applications['excludeApplications'] = @($existingExcludes)
-        }
+        $excludeGroupIds = @($policyDef.conditions.users.excludeGroups)
 
-        $policyPayload = @{
-            displayName     = $policyDisplayName
-            state           = $policyState
-            conditions      = $conditionsBody
-            grantControls   = $policyDef.grantControls
-            sessionControls = $policyDef.sessionControls
-        }
+        $policyPayload = New-AvdEntraConditionalAccessPayload `
+            -PolicyDefinition $policyDef `
+            -DisplayName $policyDisplayName `
+            -IncludeGroupIds $includeGroupIds `
+            -ExcludeGroupIds $excludeGroupIds `
+            -ExcludeStorageAppId ([string]$storageKerberosAppId) `
+            -ComplianceProfile $ComplianceProfile
+
+        $policyState = [string]$policyPayload.state
 
         $escapedPolicyName = $policyDisplayName.Replace("'", "''")
-        $caFilterUri = Get-EntraGraphFilterUri -Collection 'identity/conditionalAccess/policies' -Filter "displayName eq '$escapedPolicyName'"
-        $existingPolicies = @(Invoke-EntraGraph -Method GET -Uri $caFilterUri -DryRun:$isDryRun)
+        $caFilterUri = Get-EntraGraphFilterUri -Collection 'identity/conditionalAccess/policies' -Filter "displayName eq '$escapedPolicyName'" -Cloud $Cloud
+        $existingPolicies = @(Invoke-EntraGraph -Method GET -Uri $caFilterUri -Cloud $Cloud -DryRun:$isDryRun)
         if ($existingPolicies.Count -gt 1) {
             throw "Multiple Conditional Access policies match displayName '$policyDisplayName'."
         }
@@ -422,7 +403,7 @@ if (Test-Path -LiteralPath $policyDir) {
         if ($existingPolicies.Count -eq 1) {
             $existingPol = $existingPolicies[0]
             if ($PSCmdlet.ShouldProcess($policyDisplayName, 'Update Conditional Access policy')) {
-                $null = Invoke-EntraGraph -Method PATCH -Uri "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies/$($existingPol.id)" -Body $policyPayload -DryRun:$isDryRun
+                $null = Invoke-EntraGraph -Method PATCH -Uri "$graphEndpoint/v1.0/identity/conditionalAccess/policies/$($existingPol.id)" -Body $policyPayload -Cloud $Cloud -DryRun:$isDryRun
             }
             $policyId = [string]$existingPol.id
             $runObjects.Add([ordered]@{
@@ -436,7 +417,7 @@ if (Test-Path -LiteralPath $policyDir) {
         }
         else {
             if ($PSCmdlet.ShouldProcess($policyDisplayName, 'Create Conditional Access policy')) {
-                $createdPol = Invoke-EntraGraph -Method POST -Uri 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' -Body $policyPayload -DryRun:$isDryRun
+                $createdPol = Invoke-EntraGraph -Method POST -Uri "$graphEndpoint/v1.0/identity/conditionalAccess/policies" -Body $policyPayload -Cloud $Cloud -DryRun:$isDryRun
                 $policyId = [string]$createdPol.id
                 $runObjects.Add([ordered]@{
                     type        = 'conditionalAccessPolicy'
@@ -452,17 +433,22 @@ if (Test-Path -LiteralPath $policyDir) {
             }
         }
 
-        $caManifestList.Add([pscustomobject][ordered]@{
-            displayName = $policyDisplayName
-            state       = $policyState
-            policyId    = $policyId
-        })
+        $caEntry = [ordered]@{
+            displayName       = $policyDisplayName
+            state             = $policyState
+            policyId          = $policyId
+            complianceProfile = $ComplianceProfile
+        }
+        if ($ComplianceProfile -eq 'itar-cui' -and $policyPayload.grantControls.ContainsKey('authenticationStrength')) {
+            $caEntry['authenticationStrength'] = @($policyPayload.grantControls.authenticationStrength.allowedCombinations)
+        }
+        $caManifestList.Add([pscustomobject]$caEntry)
     }
 }
 
 # ---- 6. Optional Greenfield Lab User Seeding (-SeedLabUsers) ----
 if ($SeedLabUsers) {
-    $orgs = @(Invoke-EntraGraph -Method GET -Uri 'https://graph.microsoft.com/v1.0/organization?$select=id,verifiedDomains' -DryRun:$isDryRun)
+    $orgs = @(Invoke-EntraGraph -Method GET -Uri "$graphEndpoint/v1.0/organization?`$select=id,verifiedDomains" -Cloud $Cloud -DryRun:$isDryRun)
     $defaultDomain = 'contoso.com'
     if ($orgs.Count -gt 0 -and $orgs[0].PSObject.Properties['verifiedDomains'] -and $orgs[0].verifiedDomains) {
         $defDomObj = @($orgs[0].verifiedDomains | Where-Object { $_.isDefault -eq $true }) | Select-Object -First 1
@@ -472,14 +458,14 @@ if ($SeedLabUsers) {
 
     $labUpn = "avd-user1-$Prefix-$Environment@$defaultDomain"
     $labDisplayName = "$stamp AVD Lab User 1"
-    $userFilterUri = Get-EntraGraphFilterUri -Collection 'users' -Filter "userPrincipalName eq '$labUpn'" -Select 'id,userPrincipalName,displayName'
-    $existingUsers = @(Invoke-EntraGraph -Method GET -Uri $userFilterUri -DryRun:$isDryRun)
+    $userFilterUri = Get-EntraGraphFilterUri -Collection 'users' -Filter "userPrincipalName eq '$labUpn'" -Select 'id,userPrincipalName,displayName' -Cloud $Cloud
+    $existingUsers = @(Invoke-EntraGraph -Method GET -Uri $userFilterUri -Cloud $Cloud -DryRun:$isDryRun)
     $labUser = $existingUsers | Select-Object -First 1
 
     if (-not $labUser) {
         if ($PSCmdlet.ShouldProcess($labDisplayName, "Create greenfield lab user ($labUpn)")) {
             $labPassword = Get-EntraRandomPassword
-            $labUser = Invoke-EntraGraph -Method POST -Uri 'https://graph.microsoft.com/v1.0/users' -Body @{
+            $labUser = Invoke-EntraGraph -Method POST -Uri "$graphEndpoint/v1.0/users" -Body @{
                 accountEnabled    = $true
                 displayName       = $labDisplayName
                 mailNickname      = "avd-user1-$Prefix-$Environment"
@@ -489,7 +475,7 @@ if ($SeedLabUsers) {
                     forceChangePasswordNextSignIn = $true
                     password                      = $labPassword
                 }
-            } -DryRun:$isDryRun
+            } -Cloud $Cloud -DryRun:$isDryRun
             $runObjects.Add([ordered]@{
                 type        = 'user'
                 role        = 'labUser1'
@@ -512,12 +498,12 @@ if ($SeedLabUsers) {
     }
 
     if ($labUser) {
-        $currentMembers = @(Invoke-EntraGraph -Method GET -Uri "https://graph.microsoft.com/v1.0/groups/$($usersGroup.id)/members?`$select=id" -DryRun:$isDryRun)
+        $currentMembers = @(Invoke-EntraGraph -Method GET -Uri "$graphEndpoint/v1.0/groups/$($usersGroup.id)/members?`$select=id" -Cloud $Cloud -DryRun:$isDryRun)
         $alreadyMember = @($currentMembers | Where-Object { $_.id -eq $labUser.id }).Count -gt 0
         if (-not $alreadyMember -and $PSCmdlet.ShouldProcess($usersGroup.displayName, "Add lab user $labDisplayName")) {
-            $null = Invoke-EntraGraph -Method POST -Uri "https://graph.microsoft.com/v1.0/groups/$($usersGroup.id)/members/`$ref" -Body @{
-                '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$($labUser.id)"
-            } -DryRun:$isDryRun
+            $null = Invoke-EntraGraph -Method POST -Uri "$graphEndpoint/v1.0/groups/$($usersGroup.id)/members/`$ref" -Body @{
+                '@odata.id' = "$graphEndpoint/v1.0/directoryObjects/$($labUser.id)"
+            } -Cloud $Cloud -DryRun:$isDryRun
             foreach ($ro in $runObjects) {
                 if ($ro.type -eq 'group' -and $ro.id -eq $usersGroup.id) {
                     $ro.stateful = $true
@@ -526,10 +512,10 @@ if ($SeedLabUsers) {
         }
 
         if ($availableSku -and $PSCmdlet.ShouldProcess($labDisplayName, "Assign existing SKU $($availableSku.skuPartNumber)")) {
-            $null = Invoke-EntraGraph -Method POST -Uri "https://graph.microsoft.com/v1.0/users/$($labUser.id)/assignLicense" -Body @{
+            $null = Invoke-EntraGraph -Method POST -Uri "$graphEndpoint/v1.0/users/$($labUser.id)/assignLicense" -Body @{
                 addLicenses    = @(@{ skuId = [string]$availableSku.skuId })
                 removeLicenses = @()
-            } -DryRun:$isDryRun
+            } -Cloud $Cloud -DryRun:$isDryRun
         }
     }
 }
@@ -547,6 +533,8 @@ if ($win365UsersGroup -and $cloudPcDynamicGroup) {
 }
 $manifest = [ordered]@{
     schema             = 'avd-ops-entra-manifest/v1'
+    cloud              = $Cloud
+    complianceProfile  = $ComplianceProfile
     environment        = $Environment
     prefix             = $Prefix
     groups             = [pscustomobject]$groupsManifest
@@ -555,13 +543,15 @@ $manifest = [ordered]@{
 }
 
 $runManifest = [ordered]@{
-    schema      = 'avd-ops-entra-run-manifest/v1'
-    environment = $Environment
-    prefix      = $Prefix
-    stamp       = $stamp
-    generatedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    poolGroups  = $poolGroupMap
-    objects     = @($runObjects)
+    schema            = 'avd-ops-entra-run-manifest/v1'
+    cloud             = $Cloud
+    complianceProfile = $ComplianceProfile
+    environment       = $Environment
+    prefix            = $Prefix
+    stamp             = $stamp
+    generatedAt       = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    poolGroups        = $poolGroupMap
+    objects           = @($runObjects)
 }
 
 $outParent = Split-Path -Parent $OutputPath
