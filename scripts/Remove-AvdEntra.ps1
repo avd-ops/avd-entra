@@ -7,6 +7,8 @@
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
+    [Parameter()][ValidateSet('commercial', 'usgov')][string]$Cloud = 'commercial',
+    [Parameter()][ValidateSet('standard', 'itar-cui')][string]$ComplianceProfile = $(if ($Cloud -eq 'usgov') { 'itar-cui' } else { 'standard' }),
     [Parameter()][string]$RunManifestPath = './entra-run-manifest.json',
     [Parameter()][switch]$DiscardLastCopy,
     [Parameter()][switch]$DryRun
@@ -29,6 +31,23 @@ $runManifest = Get-Content -LiteralPath $RunManifestPath -Raw -Encoding UTF8 | C
 if ($runManifest.schema -ne 'avd-ops-entra-run-manifest/v1') {
     throw "Unsupported run manifest schema '$($runManifest.schema)'."
 }
+
+$manifestCloud = if ($runManifest.PSObject.Properties['cloud'] -and $runManifest.cloud) {
+    [string]$runManifest.cloud
+}
+else {
+    ''
+}
+if (-not $PSBoundParameters.ContainsKey('Cloud') -and -not [string]::IsNullOrWhiteSpace($manifestCloud)) {
+    $Cloud = $manifestCloud
+    if (-not $PSBoundParameters.ContainsKey('ComplianceProfile')) {
+        $ComplianceProfile = if ($Cloud -eq 'usgov') { 'itar-cui' } else { 'standard' }
+    }
+}
+
+$cloudEnv = Set-AvdEntraCloudContext -Cloud $Cloud
+$null = Assert-AvdCloudMatch -Cloud $Cloud -ManifestCloud $manifestCloud -DryRun:$isDryRun
+$graphEndpoint = ([string]$cloudEnv.graphEndpoint).TrimEnd('/')
 
 $stamp = [string]$runManifest.stamp
 if ($stamp -notmatch '^\[avd-ops-[a-z0-9-]+-(dev|test|prod)\]$') {
@@ -67,7 +86,7 @@ $statefulNames = [System.Collections.Generic.List[string]]::new()
 foreach ($cand in $candidates) {
     $isStateful = ($cand.PSObject.Properties['stateful'] -and [bool]$cand.stateful) -or ($cand.type -eq 'user')
     if (-not $isStateful -and $cand.type -eq 'group') {
-        $members = @(Invoke-EntraGraph -Method GET -Uri "https://graph.microsoft.com/v1.0/groups/$($cand.id)/members?`$select=id&`$top=1" -DryRun:$isDryRun)
+        $members = @(Invoke-EntraGraph -Method GET -Uri "$graphEndpoint/v1.0/groups/$($cand.id)/members?`$select=id&`$top=1" -Cloud $Cloud -DryRun:$isDryRun)
         if ($members.Count -gt 0) {
             $isStateful = $true
         }
@@ -94,14 +113,14 @@ $orderedCandidates = @($candidates | Sort-Object {
 
 foreach ($cand in $orderedCandidates) {
     $deleteUri = switch ($cand.type) {
-        'conditionalAccessPolicy' { "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies/$($cand.id)" }
-        'user'                    { "https://graph.microsoft.com/v1.0/users/$($cand.id)" }
-        'application'             { "https://graph.microsoft.com/v1.0/applications/$($cand.id)" }
-        'group'                   { "https://graph.microsoft.com/v1.0/groups/$($cand.id)" }
+        'conditionalAccessPolicy' { "$graphEndpoint/v1.0/identity/conditionalAccess/policies/$($cand.id)" }
+        'user'                    { "$graphEndpoint/v1.0/users/$($cand.id)" }
+        'application'             { "$graphEndpoint/v1.0/applications/$($cand.id)" }
+        'group'                   { "$graphEndpoint/v1.0/groups/$($cand.id)" }
         default                   { throw "Unsupported object type '$($cand.type)' in run manifest." }
     }
     if ($PSCmdlet.ShouldProcess($cand.displayName, "Delete $($cand.type) ($($cand.id))")) {
-        $null = Invoke-EntraGraph -Method DELETE -Uri $deleteUri -DryRun:$isDryRun
+        $null = Invoke-EntraGraph -Method DELETE -Uri $deleteUri -Cloud $Cloud -DryRun:$isDryRun
         $deleted.Add([pscustomobject]@{
             id          = [string]$cand.id
             displayName = [string]$cand.displayName
@@ -111,7 +130,9 @@ foreach ($cand in $orderedCandidates) {
 }
 
 return [pscustomobject]@{
-    Stamp   = $stamp
-    Deleted = @($deleted)
-    Skipped = @($skipped)
+    Cloud             = $Cloud
+    ComplianceProfile = $ComplianceProfile
+    Stamp             = $stamp
+    Deleted           = @($deleted)
+    Skipped           = @($skipped)
 }

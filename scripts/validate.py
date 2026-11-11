@@ -13,11 +13,15 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
-ALLOWED_DOMAINS = ("example.com", "contoso.com", "users.noreply.github.com")
+ALLOWED_DOMAINS = ("example.com", "contoso.com", "contoso.onmicrosoft.us", "users.noreply.github.com")
+VALID_CLOUDS = ("commercial", "usgov")
+VALID_COMPLIANCE_PROFILES = ("standard", "itar-cui")
 VALID_ENVS = ("dev", "test", "prod")
 VALID_CA_STATES = ("enabledForReportingButNotEnforced", "enabled", "disabled")
 REQUIRED_ROOT_KEYS = {
     "schema",
+    "cloud",
+    "complianceProfile",
     "environment",
     "prefix",
     "groups",
@@ -46,6 +50,14 @@ def validate_manifest_data(data: Any, label: str, errors: list[str]) -> None:
 
     if data.get("schema") != "avd-ops-entra-manifest/v1":
         errors.append(f"{label}: schema must be 'avd-ops-entra-manifest/v1', got {data.get('schema')!r}")
+
+    cloud = data.get("cloud")
+    if cloud not in VALID_CLOUDS:
+        errors.append(f"{label}: cloud must be one of {VALID_CLOUDS}, got {cloud!r}")
+
+    profile = data.get("complianceProfile")
+    if profile not in VALID_COMPLIANCE_PROFILES:
+        errors.append(f"{label}: complianceProfile must be one of {VALID_COMPLIANCE_PROFILES}, got {profile!r}")
 
     env = data.get("environment")
     if env not in VALID_ENVS:
@@ -84,6 +96,16 @@ def validate_manifest_data(data: Any, label: str, errors: list[str]) -> None:
                 errors.append(
                     f"{label}: conditionalAccess[{idx}].state must be one of {VALID_CA_STATES}, got {item.get('state')!r}"
                 )
+            if "complianceProfile" in item and item.get("complianceProfile") not in VALID_COMPLIANCE_PROFILES:
+                errors.append(
+                    f"{label}: conditionalAccess[{idx}].complianceProfile must be one of {VALID_COMPLIANCE_PROFILES}"
+                )
+            if "authenticationStrength" in item:
+                strength = item.get("authenticationStrength")
+                if not isinstance(strength, list) or not all(isinstance(s, str) and s.strip() for s in strength):
+                    errors.append(
+                        f"{label}: conditionalAccess[{idx}].authenticationStrength must be a list of non-empty strings"
+                    )
 
     kerb = data.get("entraKerberosReady")
     if not isinstance(kerb, bool):
@@ -96,6 +118,21 @@ def validate_repo(manifest_path: Path | None = None) -> list[str]:
     schema_file = ROOT / "contracts" / "entra-manifest.schema.json"
     if not schema_file.is_file():
         errors.append("contracts/entra-manifest.schema.json: missing contract schema file")
+
+    c26_file = ROOT / "contracts" / "cloud-environments.json"
+    if not c26_file.is_file():
+        errors.append("contracts/cloud-environments.json: missing C26 cloud environments contract file")
+    else:
+        try:
+            c26_data = json.loads(c26_file.read_text(encoding="utf-8"))
+            if c26_data.get("schema") != "avd-cloud-environments/v1":
+                errors.append("contracts/cloud-environments.json: schema must be 'avd-cloud-environments/v1'")
+            clouds = c26_data.get("clouds", {})
+            for req_cloud in VALID_CLOUDS:
+                if req_cloud not in clouds:
+                    errors.append(f"contracts/cloud-environments.json: missing clouds.{req_cloud}")
+        except Exception as exc:
+            errors.append(f"contracts/cloud-environments.json: invalid JSON: {exc}")
 
     for jf in ROOT.rglob("*.json"):
         if ".git" in jf.parts:

@@ -6,6 +6,8 @@
   "additionalProperties": false,
   "required": [
     "schema",
+    "cloud",
+    "complianceProfile",
     "environment",
     "prefix",
     "groups",
@@ -15,6 +17,20 @@
   "properties": {
     "schema": {
       "const": "avd-ops-entra-manifest/v1"
+    },
+    "cloud": {
+      "type": "string",
+      "enum": [
+        "commercial",
+        "usgov"
+      ]
+    },
+    "complianceProfile": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "itar-cui"
+      ]
     },
     "environment": {
       "type": "string",
@@ -80,6 +96,19 @@
           },
           "policyId": {
             "type": "string"
+          },
+          "complianceProfile": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "itar-cui"
+            ]
+          },
+          "authenticationStrength": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }
