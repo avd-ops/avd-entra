@@ -160,6 +160,34 @@ class TestEntraControlPlane(unittest.TestCase):
             self.assertEqual(run_manifest["cloud"], "usgov")
             self.assertEqual(run_manifest["complianceProfile"], "itar-cui")
 
+    def test_operator_planes_contract_and_docs(self) -> None:
+        clouds = json.loads((ROOT / "contracts" / "cloud-environments.json").read_text(encoding="utf-8"))
+        by_id = {e["id"]: e for e in clouds["environments"]}
+        self.assertEqual(by_id["commercial"]["oidcAudience"], "api://AzureADTokenExchange")
+        self.assertEqual(by_id["usgov"]["oidcAudience"], "api://AzureADTokenExchangeUSGov")
+        self.assertTrue(by_id["usgov"]["loginEndpoint"].endswith(".us"))
+
+        planes_cfg = json.loads((ROOT / "contracts" / "operator-planes.json").read_text(encoding="utf-8"))
+        self.assertEqual(planes_cfg["schema"], "avd-ops-operator-planes/v1")
+        denied_vals = set(planes_cfg["denyList"]["values"])
+        denied_ids = {i.lower() for i in planes_cfg["denyList"]["ids"]}
+        for plane_name, plane in planes_cfg["planes"].items():
+            self.assertGreater(len(plane["usedBy"]), 0, msg=f"{plane_name} must list usedBy")
+            roles = list(plane["appRoles"])
+            for opt_group in plane.get("optionalAppRoles", {}).values():
+                roles.extend(opt_group)
+            for r in roles:
+                self.assertNotIn(r["value"], denied_vals)
+                self.assertNotIn(r["id"].lower(), denied_ids)
+                self.assertTrue(r.get("purpose"))
+                self.assertTrue(r.get("usedBy"))
+
+        doc = (ROOT / "docs" / "operator-app.md").read_text(encoding="utf-8").lower()
+        self.assertIn("reviewer approval", doc)
+        self.assertIn("lab and ci", doc)
+        self.assertIn("untested", doc)
+        self.assertIn("scope tags", doc)
+
 
 if __name__ == "__main__":
     unittest.main()
