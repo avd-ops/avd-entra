@@ -1,0 +1,131 @@
+{
+  "schema": "avd-ops-operator-planes/v1",
+  "version": 1,
+  "graphServicePrincipalAppId": "00000003-0000-0000-c000-000000000000",
+  "denyList": {
+    "values": [
+      "Application.ReadWrite.All",
+      "AppRoleAssignment.ReadWrite.All",
+      "RoleManagement.ReadWrite.Directory",
+      "RoleManagement.ReadWrite.All",
+      "Directory.ReadWrite.All",
+      "DelegatedPermissionGrant.ReadWrite.All",
+      "Policy.ReadWrite.PermissionGrant",
+      "Policy.ReadWrite.ConditionalAccess",
+      "DeviceManagementManagedDevices.PrivilegedOperations.All",
+      "DeviceManagementRBAC.ReadWrite.All",
+      "DeviceManagementScripts.ReadWrite.All",
+      "PrivilegedAccess.*",
+      "User.ReadWrite.All",
+      "LicenseAssignment.ReadWrite.All",
+      "Sites.ReadWrite.All",
+      "Sites.FullControl.All",
+      "Exchange.ManageAsApp",
+      "TeamSettings.ReadWrite.All",
+      "Mail.*",
+      "Files.*"
+    ],
+    "ids": [
+      "1bfefb4e-e0b5-418b-a88f-73c46d2cc8e9",
+      "06b708a9-e830-4db3-a914-8e69da51d44f",
+      "9e3f62cf-ca93-4989-b6ce-bf83c28f9fe8",
+      "19dbc75e-c2e2-444c-a770-ec69d8559fc7",
+      "741f803b-c850-494e-b5df-cde7c675a1ca",
+      "5facf0c1-8979-4e95-abcf-ff3d079771c0",
+      "01c0a623-fc9b-48e9-b794-0756f8e8f067",
+      "9255e99d-faf5-445e-bbf7-cb71482737c4"
+    ]
+  },
+  "planes": {
+    "entra": {
+      "usedBy": [
+        "avd-entra"
+      ],
+      "coveredPaths": [
+        "/v1.0/groups",
+        "/v1.0/directoryObjects",
+        "/v1.0/devices",
+        "/v1.0/identity/conditionalAccess/policies",
+        "/v1.0/organization",
+        "/v1.0/subscribedSkus"
+      ],
+      "appRoles": [
+        {
+          "value": "Group.ReadWrite.All",
+          "id": "62a82d76-70ea-41e2-9197-370581804d09",
+          "purpose": "Create and manage AVD security and dynamic device groups",
+          "usedBy": "avd-entra"
+        },
+        {
+          "value": "Directory.Read.All",
+          "id": "7ab1d382-f21e-4acd-a863-ba3e13f7da61",
+          "purpose": "Read directory objects and group ownership",
+          "usedBy": "avd-entra"
+        },
+        {
+          "value": "Device.ReadWrite.All",
+          "id": "1138cb37-bd11-4084-a2b7-9f71582aeddb",
+          "purpose": "Read and update Entra device attributes for session hosts",
+          "usedBy": "avd-entra"
+        },
+        {
+          "value": "Policy.Read.ConditionalAccess",
+          "id": "37730810-e9ba-4e46-b07e-8ca78d182097",
+          "purpose": "Read Conditional Access policies (writes remain delegated)",
+          "usedBy": "avd-entra"
+        },
+        {
+          "value": "Organization.Read.All",
+          "id": "498476ce-e0fe-48b0-b801-37ba7e2685c6",
+          "purpose": "Read tenant organization and subscribed SKUs",
+          "usedBy": "avd-entra"
+        }
+      ]
+    },
+    "intune": {
+      "usedBy": [
+        "avd-intune"
+      ],
+      "coveredPaths": [
+        "/beta/deviceManagement/configurationPolicies",
+        "/beta/deviceManagement/deviceCompliancePolicies",
+        "/beta/deviceManagement/assignmentFilters",
+        "/beta/deviceManagement/deviceEnrollmentConfigurations",
+        "/v1.0/deviceManagement/settings",
+        "/v1.0/deviceManagement/virtualEndpoint",
+        "/v1.0/organization",
+        "/v1.0/subscribedSkus"
+      ],
+      "appRoles": [
+        {
+          "value": "DeviceManagementConfiguration.ReadWrite.All",
+          "id": "9241abd9-d0e6-425a-bd4f-47ba86e767a4",
+          "purpose": "Deploy and remove Settings Catalog, compliance, and assignment filter policies",
+          "usedBy": "avd-intune"
+        },
+        {
+          "value": "DeviceManagementServiceConfig.ReadWrite.All",
+          "id": "5ac13192-7ace-4fcf-b828-1a26f28068ee",
+          "purpose": "Read and configure Intune enrollment restrictions and deviceManagement/settings",
+          "usedBy": "avd-intune"
+        },
+        {
+          "value": "Organization.Read.All",
+          "id": "498476ce-e0fe-48b0-b801-37ba7e2685c6",
+          "purpose": "Read tenant organization and subscribed SKUs",
+          "usedBy": "avd-intune"
+        }
+      ],
+      "optionalAppRoles": {
+        "includeWin365": [
+          {
+            "value": "CloudPC.ReadWrite.All",
+            "id": "3b4349e1-8cf5-45a3-95b7-69d1751d3e6a",
+            "purpose": "Manage Windows 365 provisioning policies and user settings when -IncludeWin365 is set",
+            "usedBy": "avd-intune"
+          }
+        ]
+      }
+    }
+  }
+}
