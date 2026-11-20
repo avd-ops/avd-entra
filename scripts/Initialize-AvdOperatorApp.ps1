@@ -59,7 +59,7 @@ if ([string]::IsNullOrWhiteSpace($oidcAudience)) {
 }
 
 $planesCfg = Get-AvdOperatorPlanesConfig
-$requestedRoles = @(Get-AvdOperatorRequestedRoles -Config $planesCfg -Planes $uniquePlanes -IncludeWin365:$IncludeWin365)
+$requestedRoles = @(Get-AvdOperatorRequestedRole -Config $planesCfg -Planes $uniquePlanes -IncludeWin365:$IncludeWin365)
 $stampName = Get-AvdOperatorStampName -Prefix $Prefix -Environment $Environment -Planes $uniquePlanes
 
 # Resolve GitHub numeric owner/repo IDs
@@ -107,7 +107,7 @@ if ($isDryRun -and $graphSpList.Count -eq 0) {
 } else {
     $graphSp = $graphSpList[0]
 }
-$resolvedRoles = @(Resolve-AvdOperatorGraphRoles -RequestedRoles $requestedRoles -GraphServicePrincipal $graphSp -DenyList $planesCfg.denyList)
+$resolvedRoles = @(Resolve-AvdOperatorGraphRole -RequestedRoles $requestedRoles -GraphServicePrincipal $graphSp -DenyList $planesCfg.denyList)
 
 # Check existing manifest for reuse by appId
 $existingManifest = $null
@@ -137,13 +137,13 @@ if ($null -eq $targetApp) {
     }
 }
 
-Write-Host "Operator App Plan:" -ForegroundColor Cyan
-Write-Host "  DisplayName : $stampName"
-Write-Host "  Cloud       : $Cloud ($graphEndpoint)"
-Write-Host "  Planes      : $($uniquePlanes -join ', ')"
-Write-Host "  FIC Subject : $ficSubject"
-Write-Host "  Audience    : $oidcAudience"
-Write-Host "  AppRoles    : $(($resolvedRoles | ForEach-Object { "$($_.value) ($($_.id))" }) -join '; ')"
+Write-Information "Operator App Plan:" -InformationAction Continue
+Write-Information "  DisplayName : $stampName" -InformationAction Continue
+Write-Information "  Cloud       : $Cloud ($graphEndpoint)" -InformationAction Continue
+Write-Information "  Planes      : $($uniquePlanes -join ', ')" -InformationAction Continue
+Write-Information "  FIC Subject : $ficSubject" -InformationAction Continue
+Write-Information "  Audience    : $oidcAudience" -InformationAction Continue
+Write-Information "  AppRoles    : $(($resolvedRoles | ForEach-Object { "$($_.value) ($($_.id))" }) -join '; ')" -InformationAction Continue
 
 # Write initial run manifest before first write
 $manifest = [ordered]@{
@@ -270,5 +270,5 @@ foreach ($role in $resolvedRoles) {
 $manifest.appRoleAssignments = $grantRecords
 
 $manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $RunManifestPath -Encoding UTF8
-Write-Host "Operator app initialized. Ensure GitHub environment '$GitHubEnvironment' on '$GitHubRepo' requires reviewer approval and restricts deployment branches to the default branch." -ForegroundColor Yellow
+Write-Information "Operator app initialized. Ensure GitHub environment '$GitHubEnvironment' on '$GitHubRepo' requires reviewer approval and restricts deployment branches to the default branch." -InformationAction Continue
 return [pscustomobject]$manifest
