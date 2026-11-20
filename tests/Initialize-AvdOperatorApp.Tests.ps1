@@ -8,7 +8,7 @@ BeforeAll {
     $script:RemoveScript = Join-Path $script:RepoRoot 'scripts/Remove-AvdOperatorApp.ps1'
     $script:PlanesJsonPath = Join-Path $script:RepoRoot 'contracts/operator-planes.json'
     $script:TestCfg = Get-AvdOperatorPlanesConfig -ConfigPath $script:PlanesJsonPath
-    $global:PesterIntuneRoles = @(Get-AvdOperatorRequestedRoles -Config $script:TestCfg -Planes @('intune'))
+    $global:PesterIntuneRoles = @(Get-AvdOperatorRequestedRole -Config $script:TestCfg -Planes @('intune'))
 }
 
 AfterAll {
@@ -27,7 +27,7 @@ Describe 'Initialize-AvdOperatorApp & AvdOperatorApp Red-Team Guardrails' {
         $deniedIds | Should -Contain '19dbc75e-c2e2-444c-a770-ec69d8559fc7'
 
         foreach ($p in @('entra', 'intune')) {
-            $roles = Get-AvdOperatorRequestedRoles -Config $cfg -Planes @($p) -IncludeWin365
+            $roles = Get-AvdOperatorRequestedRole -Config $cfg -Planes @($p) -IncludeWin365
             $roles.Count | Should -BeGreaterThan 0
             foreach ($r in $roles) {
                 (Test-AvdOperatorDeniedRole -Value $r.value -Id $r.id -DenyList $cfg.denyList) | Should -BeFalse

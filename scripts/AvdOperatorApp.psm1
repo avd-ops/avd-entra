@@ -16,6 +16,10 @@ $script:AllowedCallerRoleTemplateIds = @(
 )
 
 function Get-AvdOperatorProp {
+    <#
+    .SYNOPSIS
+      Returns a property value from a hashtable or PSObject, or null.
+    #>
     param($Object, [string]$Name)
     if ($null -eq $Object) { return $null }
     if ($Object -is [System.Collections.IDictionary]) {
@@ -28,7 +32,12 @@ function Get-AvdOperatorProp {
 }
 
 function Get-AvdOperatorPlanesConfig {
+    <#
+    .SYNOPSIS
+      Loads and validates the operator planes contract JSON.
+    #>
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter()][string]$ConfigPath = (Join-Path $PSScriptRoot '../contracts/operator-planes.json')
     )
@@ -41,7 +50,12 @@ function Get-AvdOperatorPlanesConfig {
 }
 
 function Test-AvdOperatorDeniedRole {
+    <#
+    .SYNOPSIS
+      Tests whether an appRole value or ID is on the deny list.
+    #>
     [CmdletBinding()]
+    [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$Value,
         [Parameter(Mandatory)][string]$Id,
@@ -60,6 +74,10 @@ function Test-AvdOperatorDeniedRole {
 }
 
 function Assert-AvdOperatorPlanesSafe {
+    <#
+    .SYNOPSIS
+      Verifies that no plane in the contract includes a denied appRole.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object]$Config
@@ -83,8 +101,13 @@ function Assert-AvdOperatorPlanesSafe {
     }
 }
 
-function Get-AvdOperatorRequestedRoles {
+function Get-AvdOperatorRequestedRole {
+    <#
+    .SYNOPSIS
+      Collects deduplicated Graph appRoles requested for the given planes.
+    #>
     [CmdletBinding()]
+    [OutputType([object[]])]
     param(
         [Parameter(Mandatory)][object]$Config,
         [Parameter(Mandatory)][string[]]$Planes,
@@ -117,7 +140,12 @@ function Get-AvdOperatorRequestedRoles {
 }
 
 function Get-AvdOperatorSubject {
+    <#
+    .SYNOPSIS
+      Builds an immutable GitHub environment OIDC subject claim.
+    #>
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory)][string]$Owner,
         [Parameter(Mandatory)][string]$OwnerId,
@@ -138,7 +166,12 @@ function Get-AvdOperatorSubject {
 }
 
 function Get-AvdOperatorCredentialName {
+    <#
+    .SYNOPSIS
+      Builds a deterministic federated identity credential name.
+    #>
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory)][string]$RepoId,
         [Parameter(Mandatory)][string]$Environment
@@ -155,7 +188,12 @@ function Get-AvdOperatorCredentialName {
 }
 
 function Get-AvdOperatorPolicyBody {
+    <#
+    .SYNOPSIS
+      Builds the appManagementPolicy payload that blocks secrets and keys.
+    #>
     [CmdletBinding()]
+    [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][string]$AppDisplayName
     )
@@ -176,7 +214,12 @@ function Get-AvdOperatorPolicyBody {
 }
 
 function Get-AvdOperatorStampName {
+    <#
+    .SYNOPSIS
+      Builds the operator application displayName for a stamp.
+    #>
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory)][string]$Prefix,
         [Parameter(Mandatory)][string]$Environment,
@@ -187,7 +230,12 @@ function Get-AvdOperatorStampName {
 }
 
 function Assert-AvdOperatorCaller {
+    <#
+    .SYNOPSIS
+      Verifies that the signed-in caller is an interactive user holding Global Admin or Privileged Role Admin.
+    #>
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter()][object]$CallerMe,
         [Parameter()][object[]]$CallerMemberOf = @()
@@ -221,6 +269,11 @@ function Assert-AvdOperatorCaller {
 }
 
 function Assert-AvdOperatorAppClean {
+    <#
+    .SYNOPSIS
+      Verifies that an operator application has no secrets, one owner (caller), and only immutable environment FICs.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '', Justification = 'FederatedCredentials holds OIDC federated identity credential objects, not passwords or secrets.')]
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object]$App,
@@ -249,8 +302,13 @@ function Assert-AvdOperatorAppClean {
     }
 }
 
-function Resolve-AvdOperatorGraphRoles {
+function Resolve-AvdOperatorGraphRole {
+    <#
+    .SYNOPSIS
+      Resolves requested appRoles against the Microsoft Graph service principal and deny list.
+    #>
     [CmdletBinding()]
+    [OutputType([object[]])]
     param(
         [Parameter(Mandatory)][object[]]$RequestedRoles,
         [Parameter(Mandatory)][object]$GraphServicePrincipal,
@@ -279,7 +337,12 @@ function Resolve-AvdOperatorGraphRoles {
 }
 
 function Get-AvdOperatorOidcAudience {
+    <#
+    .SYNOPSIS
+      Returns the expected OIDC audience for the target cloud from cloud-environments.json.
+    #>
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory)][string]$Cloud,
         [Parameter()][string]$ContractPath = (Join-Path $PSScriptRoot '../contracts/cloud-environments.json')
@@ -297,12 +360,12 @@ Export-ModuleMember -Function @(
     'Get-AvdOperatorOidcAudience',
     'Test-AvdOperatorDeniedRole',
     'Assert-AvdOperatorPlanesSafe',
-    'Get-AvdOperatorRequestedRoles',
+    'Get-AvdOperatorRequestedRole',
     'Get-AvdOperatorSubject',
     'Get-AvdOperatorCredentialName',
     'Get-AvdOperatorPolicyBody',
     'Get-AvdOperatorStampName',
     'Assert-AvdOperatorCaller',
     'Assert-AvdOperatorAppClean',
-    'Resolve-AvdOperatorGraphRoles'
+    'Resolve-AvdOperatorGraphRole'
 )

@@ -69,4 +69,4 @@ if ($manifest.appCreated -eq $true -and -not [string]::IsNullOrWhiteSpace([strin
     }
 }
 
-Write-Host "Operator app teardown complete. Remember to remove AZURE_CLIENT_ID and AZURE_TENANT_ID from the GitHub environment if no longer used." -ForegroundColor Yellow
+Write-Information "Operator app teardown complete. Remember to remove AZURE_CLIENT_ID and AZURE_TENANT_ID from the GitHub environment if no longer used." -InformationAction Continue
